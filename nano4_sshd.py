@@ -203,6 +203,7 @@ def upstream_connect(port, label, replay=False):
             # A failed attempt's answers must not unlock the password file
             # or be replayed to the transfer node.
             RECORDED.clear()
+            _REPLAY_AT = 0
             CLUSTER_PW = None
         try:
             t = _authenticate(port, _prompt_handler)
@@ -500,9 +501,12 @@ def handle_client(sock, addr):
 
 def heartbeat(interval):
     """Keep both upstream sessions warm; protocol keepalives alone do not
-    always prevent idle reaping.  Cannot reconnect -- that needs a fresh OTP."""
+    always prevent idle reaping.  Cannot reconnect by itself -- that needs a
+    fresh OTP, so it points the operator at relogin()."""
     while True:
         time.sleep(interval)
+        if RELOGGING.is_set():
+            continue
         stamp = time.strftime("%H:%M:%S")
         exec_ok = False
         try:
@@ -522,12 +526,91 @@ def heartbeat(interval):
             except Exception as exc:
                 sftp_ok = False
                 print(f"[sshd] {stamp} transfer node heartbeat failed: {exc}")
+        if RELOGGING.is_set():
+            continue          # the sessions were swapped mid-check
         if exec_ok and sftp_ok is not False:
             extra = " + sftp" if sftp_ok else ""
             print(f"[sshd] {stamp} alive (login node{extra})")
         else:
-            print(f"[sshd] {stamp} !! UPSTREAM LOST -- Ctrl-C and restart, "
-                  "you will need fresh OTPs")
+            print(f"[sshd] {stamp} !! UPSTREAM LOST -- {RELOGIN_KEYS} to log"
+                  " in again, with a new code from your phone app")
+
+
+# ----------------------------------------------------------------- re-login
+
+RELOGGING = threading.Event()   # set while the operator types; heartbeat waits
+RELOGIN_KEYS = "press R" if os.name == "nt" else "type r and press Enter"
+
+
+def _wait_for_key():
+    """Block until the operator asks to log in again; False once stdin closes."""
+    if os.name == "nt":
+        import msvcrt
+        while True:
+            # Poll: a blocking getwch puts the console in raw mode and would
+            # read Ctrl-C as an ordinary character instead of stopping.
+            while not msvcrt.kbhit():
+                time.sleep(0.1)
+            if msvcrt.getwch().lower() == "r":
+                return True
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            return False
+        if line.strip().lower() == "r":
+            return True
+
+
+def _close_quietly(transport):
+    try:
+        transport.close()
+    except Exception:
+        pass
+
+
+def relogin(args):
+    """Replace both upstream sessions in place; the listener never stops."""
+    global UP, UPSFTP, LOCAL_PASSWORD, PASSWORD_HINT
+    RELOGGING.set()
+    try:
+        print("\n[sshd] logging in to nano4 again:  1) type 1   2) your"
+              " iService password   3) a NEW code from your phone app")
+        try:
+            up = upstream_connect(SSH_PORT, "login node")
+        except (Exception, SystemExit) as exc:
+            print(exc)
+            print(f"[sshd] still disconnected -- {RELOGIN_KEYS} to try again")
+            return
+        old, UP = UP, up
+        _close_quietly(old)
+        before = LOCAL_PASSWORD
+        LOCAL_PASSWORD, PASSWORD_HINT = resolve_password(args)
+        if LOCAL_PASSWORD != before:
+            print("[sshd] client password is now " + paint(PASSWORD_HINT, HIGHLIGHT))
+
+        if not args.no_transfer:
+            try:
+                up2 = upstream_connect(SFTP_PORT, "transfer node", replay=True)
+                sftp = paramiko.SFTPClient.from_transport(up2)
+                print("[sshd] sftp proxy enabled")
+            except (Exception, SystemExit) as exc:
+                sftp = None
+                print(f"[sshd] transfer node unavailable ({exc}) -- sftp disabled")
+            with UPSFTP_LOCK:
+                old, UPSFTP = UPSFTP, sftp
+            if old is not None:
+                _close_quietly(old.get_channel().get_transport())
+
+        files = "" if UPSFTP or args.no_transfer else " (files are OFF)"
+        print("[sshd] " + paint("RECONNECTED", READY)
+              + f" - nano4 is connected again{files}. Leave this window open.")
+    finally:
+        RELOGGING.clear()
+
+
+def watch_keys(args):
+    while _wait_for_key():
+        relogin(args)
 
 
 VIRTUAL_HINTS = ("vethernet", "vmware", "virtualbox", "hyper-v", "loopback",
@@ -651,6 +734,7 @@ def print_ready(args):
     print(f"  test it:  ssh -p {args.port} {USER}@{host} hostname")
     hb = f"every {args.heartbeat}s" if args.heartbeat > 0 else "disabled"
     print(f"  keep-alive heartbeat: {hb} -- safe to leave unattended")
+    print(f"  if nano4 disconnects, {RELOGIN_KEYS} to log in again")
     print("  Ctrl-C to close both nano4 sessions\n")
 
 
@@ -732,12 +816,18 @@ def main():
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind((args.bind, args.port))
     srv.listen(16)
+    # A blocking accept() on Windows ignores Ctrl-C until a client connects.
+    srv.settimeout(1.0)
 
     print_ready(args)
+    threading.Thread(target=watch_keys, args=(args,), daemon=True).start()
 
     try:
         while True:
-            sock, addr = srv.accept()
+            try:
+                sock, addr = srv.accept()
+            except socket.timeout:
+                continue
             threading.Thread(target=handle_client, args=(sock, addr),
                              daemon=True).start()
     except KeyboardInterrupt:

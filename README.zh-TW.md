@@ -97,7 +97,7 @@ OTP:            手機 App 上的六位數字
 | --- | --- |
 | Claude 連不上 nano4 | 確認 `start-bridge.cmd` 視窗還開著，連線靠的就是這個視窗。 |
 | bridge 視窗不見了 | 再按兩下 `start-bridge.cmd` 並登入。 |
-| 視窗出現 `UPSTREAM LOST` | nano4 中斷了連線。關閉視窗後重新啟動。 |
+| 視窗出現 `UPSTREAM LOST` | 點一下視窗，按 **R**，再用手機 App 上的新驗證碼重新登入。 |
 | 顯示防火牆 **Not allowed** | 關閉視窗，再按兩下 `start-bridge.cmd`，Windows 詢問時點 **是**。 |
 | 顯示位址已變更 | 不用處理，bridge 會自動更新。如果 Claude 仍然連不上，在 **Customize → Compute** 重新加入主機。 |
 | Claude 可以執行指令，但無法上傳或下載檔案 | 等一分鐘，第一次連線還在完成中。如果持續發生，在 **Customize → Compute** 對這台主機點 **Retry probe**。 |

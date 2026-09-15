@@ -97,7 +97,7 @@ If you change your iService password, update it in Claude Science too.
 | --- | --- |
 | Claude can't connect to nano4 | Check the `start-bridge.cmd` window is still open. That window is the connection. |
 | The bridge window is gone | Double-click `start-bridge.cmd` again and log in. |
-| `UPSTREAM LOST` in the window | nano4 dropped the connection. Close the window and start it again. |
+| `UPSTREAM LOST` in the window | Click the window, press **R**, and log in again with a new code from your phone app. |
 | It said the firewall was **Not allowed** | Close the window, double-click `start-bridge.cmd` again, and click **Yes** on the Windows prompt. |
 | It says the address changed | Nothing to do — the bridge updates the entry itself. If Claude still cannot connect, add the host again in **Customize → Compute**. |
 | Claude can run commands but cannot send or fetch files | Wait a minute — the first connection is still finishing. If it persists, click **Retry probe** on the host in **Customize → Compute**. |
