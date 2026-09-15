@@ -131,8 +131,33 @@ if (($current -join "`n") -notmatch [regex]::Escape(($wanted -join "`n"))) {
     }
     if (Test-Path $cfgPath) { Copy-Item $cfgPath "$cfgPath.backup" -Force }
     ($kept + @("") + $wanted) | Set-Content -Path $cfgPath -Encoding ASCII
-    if (Get-Command ssh-keygen -ErrorAction SilentlyContinue) {
-        try { & ssh-keygen -R "[$addr]:$PORT" 2>$null | Out-Null } catch { }
+}
+
+# ------------------------------------------------- host key pin (keep fresh)
+# Checked every run, not only when the entry above changes: a new copy of this
+# folder or a deleted local_hostkey mints a new key at the same address, and a
+# stale pin fails every client with "REMOTE HOST IDENTIFICATION HAS CHANGED".
+$hostKey = & $uv run nano4_sshd.py --host-key 2>&1 |
+           Where-Object { $_ -match '^ssh-\S+ \S+$' } | Select-Object -Last 1
+if ($hostKey -and (Get-Command ssh-keygen -ErrorAction SilentlyContinue)) {
+    $hostKey = $hostKey.ToString().Trim()
+    $blob = ($hostKey -split ' ')[1]
+    $knownPath = Join-Path $sshDir 'known_hosts'
+    $target = "[$addr]:$PORT"
+    $pinned = @()
+    if (Test-Path $knownPath) {
+        $pinned = @(& ssh-keygen -F $target -f $knownPath 2>$null |
+                    Where-Object { $_ -and $_ -notmatch '^#' })
+    }
+    if ($pinned | Where-Object { $_ -notmatch [regex]::Escape($blob) }) {
+        Write-Host "Replacing the old bridge key your SSH client remembered."
+        try { & ssh-keygen -R $target -f $knownPath 2>$null | Out-Null } catch { }
+        $pinned = @()
+    }
+    if (-not $pinned) {
+        $text = if (Test-Path $knownPath) { [IO.File]::ReadAllText($knownPath) } else { '' }
+        $sep = if ($text -and -not $text.EndsWith("`n")) { "`r`n" } else { '' }
+        [IO.File]::AppendAllText($knownPath, "$sep$target $hostKey`r`n")
     }
 }
 

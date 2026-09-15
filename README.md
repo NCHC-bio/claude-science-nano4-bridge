@@ -222,7 +222,7 @@ interactive confirmation.
 | `Permission denied (keyboard-interactive)` | client is dialling nano4 directly, not the bridge |
 | `sftp unavailable (EOF during negotiation)` | expected on port 22; sftp comes from 2222 |
 | `no scratch_root configured yet` | probe hasn't finished populating it; it cleared on its own within a couple of minutes on 2026-09-15, otherwise **Retry probe** in Customize → Compute |
-| host key mismatch | `local_hostkey` regenerated; `ssh-keygen -R "[<addr>]:2200"` |
+| host key mismatch | `local_hostkey` was regenerated (new folder copy, file deleted); `start-bridge.cmd` re-pins it on its next start, or by hand: `ssh-keygen -R "[<addr>]:2200"` |
 
 ## Files
 

@@ -684,6 +684,9 @@ def main():
                     help="seconds between upstream keep-warm pokes (0 disables)")
     ap.add_argument("--show-address", action="store_true",
                     help="print the recommended address and exit (no login)")
+    ap.add_argument("--host-key", action="store_true",
+                    help="print the public host key clients should pin, creating"
+                         " it if needed, and exit (no login)")
     ap.add_argument("--no-transfer", action="store_true",
                     help="skip the port-2222 login (no sftp, exec only)")
     args = ap.parse_args()
@@ -693,6 +696,11 @@ def main():
         if not cands:
             sys.exit("no usable network address found on this machine")
         print(cands[0][0])
+        return
+
+    if args.host_key:
+        key = load_hostkey()
+        print(f"{key.get_name()} {key.get_base64()}")
         return
 
     if not USER:
