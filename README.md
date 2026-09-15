@@ -1,5 +1,7 @@
 # nano4-bridge
 
+English | [繁體中文](README.zh-TW.md)
+
 Every time you connect to nano4 it asks you three things: which login method,
 your iService password, and a one-time code from your phone. Programs can't
 answer those questions, so programs can't use nano4 by themselves.
