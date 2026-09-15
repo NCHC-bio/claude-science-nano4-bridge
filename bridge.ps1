@@ -163,14 +163,6 @@ if ($hostKey -and (Get-Command ssh-keygen -ErrorAction SilentlyContinue)) {
 
 # ----------------------------------------------------------------- the login
 Write-Host ""
-Write-Host "-------------------------------------------------------------"
-Write-Host " Settings for Claude for Science (Customize -> Compute):"
-Write-Host "     Host      $addr"
-Write-Host "     Port      $PORT"
-Write-Host "     User      $account"
-Write-Host "     Password  shown below once you have logged in"
-Write-Host "-------------------------------------------------------------"
-Write-Host ""
 Write-Host "Now log in to the cluster:" -ForegroundColor Cyan
 Write-Host "  1) type 1 and press Enter    2) your iService password (nothing"
 Write-Host "  appears as you type)         3) the code from your phone app"

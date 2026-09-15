@@ -8,7 +8,7 @@
 local_hostkey
 local_hostkey.pub
 
-# generated password the client authenticates with
+# bridge passwords from older versions (the bridge deletes them at startup)
 local_password.enc
 local_password.txt
 

@@ -14,17 +14,17 @@ transfer node, so ordinary SSH tooling can drive the cluster.
 
 Security: the default bind is 0.0.0.0, because a loopback bind is unreachable
 from a client in another network namespace.  The port fronts a live
-authenticated session on your account, guarded only by the generated password
-in local_password.enc (or authorized_key.pub), so keep a host firewall rule
-limited to the sources you intend.  See README.md.
+authenticated session on your account, guarded by your upstream password (or
+authorized_key.pub), so keep a host firewall rule limited to the sources you
+intend.  See README.md.
 
-Your upstream password and OTP are typed by you, kept in memory for the two
-logins only, and never written to disk.
+Your upstream password and OTP are typed by you and never written to disk.  The
+password stays in memory while the bridge runs, to check clients against; the
+OTP is kept only for the two logins.
 """
 import argparse
 import errno
 import getpass
-import hashlib
 import os
 import pathlib
 import secrets
@@ -44,93 +44,24 @@ ROOT = pathlib.Path(__file__).resolve().parent
 HOSTKEY_PATH = ROOT / "local_hostkey"
 
 
-SECRET_PATH = ROOT / "local_password.enc"
-LEGACY_PATH = ROOT / "local_password.txt"
-_AAD = b"ssh-2fa-bridge/v1"
-_DPAPI_ENTROPY = b"ssh-2fa-bridge/local-password"
-CLUSTER_PW = None          # first hidden answer; unlocks SECRET_PATH, never stored
+# Bridge-password files from older versions, removed at startup.
+OLD_SECRET_PATHS = (ROOT / "local_password.enc", ROOT / "local_password.txt")
+CLUSTER_PW = None          # first hidden answer; clients present it, never stored
 
-
-def _dpapi(data, protect=True):
-    """Wrap/unwrap with the Windows user account key (CryptProtectData)."""
-    import ctypes
-    import ctypes.wintypes
-
-    class BLOB(ctypes.Structure):
-        _fields_ = [("cbData", ctypes.wintypes.DWORD),
-                    ("pbData", ctypes.POINTER(ctypes.c_char))]
-
-    def mk(raw):
-        buf = ctypes.create_string_buffer(raw, len(raw))
-        return BLOB(len(raw), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))), buf
-
-    src, _a = mk(data)
-    ent, _b = mk(_DPAPI_ENTROPY)
-    out = BLOB()
-    fn = (ctypes.windll.crypt32.CryptProtectData if protect
-          else ctypes.windll.crypt32.CryptUnprotectData)
-    if not fn(ctypes.byref(src), None, ctypes.byref(ent), None, None, 0,
-              ctypes.byref(out)):
-        raise OSError(ctypes.GetLastError(), "DPAPI call failed")
-    try:
-        return ctypes.string_at(out.pbData, out.cbData)
-    finally:
-        ctypes.windll.kernel32.LocalFree(out.pbData)
-
-
-def _key(cluster_pw, salt):
-    # scrypt: deliberately slow, so a stolen file is a poor dictionary target
-    # maxmem must be raised explicitly: OpenSSL defaults to a 32 MB cap,
-    # and n=2**15, r=8 needs 128*n*r = 32 MB exactly.
-    return hashlib.scrypt(cluster_pw.encode("utf-8"), salt=salt,
-                          n=2 ** 15, r=8, p=1, dklen=32, maxmem=64 * 1024 * 1024)
-
-
-def seal(bridge_pw, cluster_pw):
-    """Encrypt the bridge password under the cluster password, then wrap in DPAPI."""
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    salt, nonce = secrets.token_bytes(16), secrets.token_bytes(12)
-    body = (b"B1" + salt + nonce
-            + AESGCM(_key(cluster_pw, salt)).encrypt(nonce,
-                                                     bridge_pw.encode("utf-8"), _AAD))
-    if os.name == "nt":
-        try:
-            return b"D1" + _dpapi(body, protect=True)
-        except OSError:
-            pass
-    return body
-
-
-def unseal(data, cluster_pw):
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    if data[:2] == b"D1":
-        data = _dpapi(data[2:], protect=False)
-    if data[:2] != b"B1":
-        raise ValueError("unrecognised password file")
-    salt, nonce, ct = data[2:18], data[18:30], data[30:]
-    return AESGCM(_key(cluster_pw, salt)).decrypt(nonce, ct, _AAD).decode("utf-8")
+# Clients now present a person-chosen password, not a random token, so wrong
+# guesses are taken one at a time and each one costs this long.
+WRONG_PASSWORD_DELAY = 2.0
+_PASSWORD_CHECK = threading.Lock()
 
 
 def resolve_password(args):
-    """The client-facing password: decrypted if possible, else freshly sealed."""
+    """What clients must present, and how to describe it to the operator."""
     if args.password:
-        return args.password, "--password"
-    if not CLUSTER_PW:
-        return secrets.token_urlsafe(12), "session only -- no key material captured"
-    if SECRET_PATH.exists() and not args.new_password:
-        try:
-            return unseal(SECRET_PATH.read_bytes(), CLUSTER_PW), \
-                   f"decrypted from {SECRET_PATH.name}"
-        except Exception as exc:
-            print(f"[sshd] {SECRET_PATH.name} could not be decrypted ({type(exc).__name__});"
-                  " generating a new password -- update it in your client")
+        return args.password, "the BRIDGE_PASSWORD in bridge.conf"
+    if CLUSTER_PW:
+        return CLUSTER_PW, "your iService password (the one you just typed)"
     pw = secrets.token_urlsafe(12)
-    SECRET_PATH.write_bytes(seal(pw, CLUSTER_PW))
-    try:
-        os.chmod(SECRET_PATH, 0o600)
-    except OSError:
-        pass
-    return pw, f"new, encrypted to {SECRET_PATH.name}"
+    return pw, f"{pw}   (works only until this window closes)"
 
 
 def _conf():
@@ -153,6 +84,33 @@ def setting(name, default=""):
     return os.environ.get(name) or CONF.get(name, default)
 
 
+def _colour_console():
+    """Enable colour escapes when stdout is a console that can show them."""
+    if os.environ.get("NO_COLOR") or not sys.stdout.isatty():
+        return False
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-11)          # STD_OUTPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        # ENABLE_VIRTUAL_TERMINAL_PROCESSING: off by default in a Windows 10 console
+        return bool(kernel32.SetConsoleMode(handle, mode.value | 0x0004))
+    except Exception:
+        return False
+
+
+COLOUR = False
+HIGHLIGHT, READY = "1;30;103", "1;92"
+
+
+def paint(text, sgr):
+    return f"\x1b[{sgr}m{text}\x1b[0m" if COLOUR else text
+
+
 HOST = setting("BRIDGE_HOST", "nano4.nchc.org.tw")
 SSH_PORT = int(setting("BRIDGE_PORT", "22"))
 SFTP_PORT = int(setting("BRIDGE_SFTP_PORT", "2222"))
@@ -162,6 +120,7 @@ UP = None                       # upstream Transport -> login node (exec)
 UPSFTP = None                   # upstream SFTPClient -> transfer node
 UPSFTP_LOCK = threading.Lock()  # SFTPClient is not thread-safe
 LOCAL_PASSWORD = None
+PASSWORD_HINT = ""              # what LOCAL_PASSWORD is, in words for the operator
 AUTHORIZED_KEY = None
 HOSTKEY = None
 
@@ -481,11 +440,16 @@ class LocalServer(paramiko.ServerInterface):
         return "publickey,password" if AUTHORIZED_KEY else "password"
 
     def check_auth_password(self, username, password):
-        if LOCAL_PASSWORD and secrets.compare_digest(password, LOCAL_PASSWORD):
-            print(f"[sshd] client authenticated (password) as {username!r}")
-            return paramiko.AUTH_SUCCESSFUL
-        print("[sshd] client rejected: wrong password")
-        return paramiko.AUTH_FAILED
+        with _PASSWORD_CHECK:
+            # bytes: compare_digest refuses str with non-ASCII characters
+            if LOCAL_PASSWORD and secrets.compare_digest(
+                    password.encode("utf-8"), LOCAL_PASSWORD.encode("utf-8")):
+                print(f"[sshd] client authenticated (password) as {username!r}")
+                return paramiko.AUTH_SUCCESSFUL
+            print("[sshd] client rejected: wrong password -- it must be "
+                  + PASSWORD_HINT)
+            time.sleep(WRONG_PASSWORD_DELAY)
+            return paramiko.AUTH_FAILED
 
     def check_auth_publickey(self, username, key):
         if AUTHORIZED_KEY and key.asbytes() == AUTHORIZED_KEY.asbytes():
@@ -665,8 +629,33 @@ def load_hostkey():
     return k
 
 
+def print_ready(args):
+    """The banner the operator reads to set up their client."""
+    cands = [c[0] for c in address_candidates()]
+    host = args.expect if args.expect in cands else (cands[0] if cands else args.bind)
+    print("\n" + "=" * 68)
+    print("  " + paint("READY", READY) + " - nano4 is connected. Leave this window open.")
+    print("=" * 68)
+    print("  When Claude for Science asks for a password, use")
+    print("     " + paint(PASSWORD_HINT, HIGHLIGHT))
+    print("-" * 68)
+    print("  Connection details (Customize -> Compute, host nano4-bridge):")
+    print(f"     Host      {host}")
+    print(f"     Port      {args.port}")
+    print(f"     User      {USER}   (any username is accepted)")
+    print(f"     Files     {'on (via transfer node)' if UPSFTP else 'OFF - sending and fetching files will fail'}")
+    if host != args.expect:
+        print("-" * 68)
+        print_address_advice(args.expect)
+    print("-" * 68)
+    print(f"  test it:  ssh -p {args.port} {USER}@{host} hostname")
+    hb = f"every {args.heartbeat}s" if args.heartbeat > 0 else "disabled"
+    print(f"  keep-alive heartbeat: {hb} -- safe to leave unattended")
+    print("  Ctrl-C to close both nano4 sessions\n")
+
+
 def main():
-    global UP, UPSFTP, HOSTKEY, LOCAL_PASSWORD, AUTHORIZED_KEY
+    global UP, UPSFTP, HOSTKEY, LOCAL_PASSWORD, PASSWORD_HINT, AUTHORIZED_KEY, COLOUR
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=2200, help="local listen port")
@@ -674,9 +663,7 @@ def main():
                     help="local bind address (default: all interfaces -- "
                          "a loopback bind is unreachable from the client)")
     ap.add_argument("--password", default=setting("BRIDGE_PASSWORD") or None,
-                    help="fixed password; default reuses the saved one")
-    ap.add_argument("--new-password", action="store_true",
-                    help="rotate the saved password")
+                    help="fixed client password instead of your iService password")
     ap.add_argument("--authorized-key", default=str(ROOT / "authorized_key.pub"))
     ap.add_argument("--expect", default=setting("BRIDGE_EXPECT"),
                     help="address the client dials; warn if absent ('' to skip)")
@@ -706,7 +693,7 @@ def main():
     if not USER:
         sys.exit("set BRIDGE_USER (your iService account) in bridge.conf"
                  " or the environment")
-
+    COLOUR = _colour_console()
 
     keypath = pathlib.Path(args.authorized_key)
     if keypath.exists():
@@ -720,10 +707,15 @@ def main():
     HOSTKEY = load_hostkey()
 
     UP = upstream_connect(SSH_PORT, "login node")
-    LOCAL_PASSWORD, pw_source = resolve_password(args)
-    if LEGACY_PATH.exists():
-        print(f"[sshd] {LEGACY_PATH.name} holds a plaintext password from an older"
-              " version -- delete it")
+    LOCAL_PASSWORD, PASSWORD_HINT = resolve_password(args)
+    for old in OLD_SECRET_PATHS:
+        try:
+            old.unlink()
+            print(f"[sshd] removed {old.name} -- clients now use your iService password")
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            print(f"[sshd] could not remove {old.name} ({exc}) -- delete it by hand")
     if not args.no_transfer:
         try:
             up2 = upstream_connect(SFTP_PORT, "transfer node", replay=True)
@@ -741,20 +733,7 @@ def main():
     srv.bind((args.bind, args.port))
     srv.listen(16)
 
-    print("\n" + "=" * 68)
-    print("  nano4 is now reachable as an ordinary SSH host:")
-    print(f"     Host      {args.bind}")
-    print(f"     Port      {args.port}")
-    print(f"     User      {USER}   (any username is accepted)")
-    print(f"     Password  {LOCAL_PASSWORD}   [{pw_source}]")
-    print(f"     sftp      {'enabled (via transfer node)' if UPSFTP else 'DISABLED'}")
-    print("-" * 68)
-    print_address_advice(args.expect)
-    print("=" * 68)
-    print("  test it:  ssh -p %d %s@%s hostname" % (args.port, USER, args.bind))
-    hb = f"every {args.heartbeat}s" if args.heartbeat > 0 else "disabled"
-    print(f"  keep-alive heartbeat: {hb} -- safe to leave unattended")
-    print("  Ctrl-C to close both nano4 sessions\n")
+    print_ready(args)
 
     try:
         while True:

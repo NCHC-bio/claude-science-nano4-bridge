@@ -55,8 +55,8 @@ Only needed once. In the left sidebar open **Customize → Compute**, then
    selected by default and will not work.
 3. Save.
 
-Then ask Claude to run something on nano4. A password box appears — paste the
-`Password` line from the bridge window into that box, not into the chat.
+Then ask Claude to run something on nano4. A password box appears — type your
+**iService password** into that box, not into the chat.
 
 The optional notes box is a good place for anything Claude should know about the
 cluster, for example: *Slurm cluster, submit jobs with sbatch.*
@@ -70,8 +70,8 @@ cluster, for example: *Slurm cluster, submit jobs with sbatch.*
 Double-click `start-bridge.cmd`, answer the three questions, leave the window
 open while you work.
 
-Nothing else needs setting up again, and the password stays the same, so you
-won't have to change anything in Claude for Science.
+Nothing else needs setting up again. If you change your iService password,
+update it in Claude for Science too.
 
 ---
 
@@ -87,28 +87,8 @@ won't have to change anything in Claude for Science.
 | Anything else | Copy what the window shows and send it to whoever maintains this. |
 
 | Claude can run commands but cannot send or fetch files | Wait a minute — the first connection is still finishing. If it persists, click **Retry probe** on the host in **Customize → Compute**. |
-| Claude asks for a password and rejects it | Run `start-bridge.cmd` and re-copy the `Password` line from the window. |
+| Claude asks for a password and rejects it | Use your iService password, the one you type into the bridge window. |
 | Claude says `Permission denied (publickey)` | The host was added with **Public key**. Add it again and choose **Password**. |
-
----
-
-# Two passwords — don't mix them up
-
-| Password | Where you type it | What it's for |
-|---|---|---|
-| Your **iService** password, plus the one-time code | The `start-bridge.cmd` window, when it asks | Logging you in to nano4 |
-| The **bridge** password, shown in the box | Claude for Science, or another program | Letting that program use your login |
-
-Your iService password and one-time code are only ever typed into the bridge
-window. They are not saved to a file and no program is ever given them.
-
-The bridge password is stored on your computer, scrambled using your iService
-password. If someone copies that file they can't read it, because they'd also
-need your iService password — which is only in your head.
-
-If you ever change your iService password, the bridge will say it can no longer
-read the stored file, print a new bridge password, and you paste that one into
-Claude for Science. Nothing breaks.
 
 ---
 
@@ -159,7 +139,8 @@ same names take precedence:
 | `--expect` | from config | warn if that address is absent |
 | `--heartbeat` | `240` | keep-warm interval, seconds; `0` disables |
 | `--no-transfer` | off | skip the sftp login |
-| `--password` / `--new-password` | — | pin or rotate the client password |
+| `--host-key` | — | print the public host key (creating it) and exit |
+| `--password` | `BRIDGE_PASSWORD` | fixed client password instead of the iService password |
 | `--authorized-key` | `authorized_key.pub` | accept a public key instead |
 
 ## Address selection
@@ -172,19 +153,22 @@ above the routed one, since the routed address moves with the network.
 `host.docker.internal` was tested against the Claude for Science client and does
 not resolve to anything reachable.
 
-## Credential storage
+## Client password
 
-```
-local_password.enc = DPAPI( salt | nonce | AES-256-GCM( scrypt(iService password, salt) ) )
-```
+Clients authenticate with the iService password itself, so users handle one
+password. It is captured from the first non-echo login prompt, held in memory
+for the life of the process, and never written to disk; the bridge only accepts
+clients after that interactive 2FA login, so the password alone is not enough
+to reach the cluster through it. Claude for Science stores the credential
+encrypted on its side.
 
-scrypt at `n=2**15, r=8, p=1`, with `maxmem` raised — OpenSSL's default 32 MB
-cap rejects exactly these parameters. The iService password is captured from the
-first non-echo prompt and held in memory only. The outer DPAPI layer binds the
-file to the Windows account so a stolen copy is not an offline guessing target
-for the iService password; the inner layer means an attacker with the OS account
-still cannot read it. Password resolution therefore happens after the
-login-node connect.
+Because a person-chosen password is weaker than the random token earlier
+versions generated, password checks are serialized and each failure sleeps
+2 s, capping guesses from the network at about 1800 an hour. Comparison is
+constant-time on UTF-8 bytes.
+
+Earlier versions kept a separate random bridge password in `local_password.enc`
+(or plaintext `local_password.txt`); both are deleted at startup.
 
 ## Manual setup
 
