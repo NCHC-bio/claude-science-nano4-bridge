@@ -1,0 +1,62 @@
+# ---------------------------------------------------------------------------
+# Secrets. Never commit these -- they grant access to a live HPC session.
+# NOTE: gitignore only honours '#' at the start of a line, so no inline
+# comments below -- a trailing comment would become part of the pattern.
+# ---------------------------------------------------------------------------
+
+# private host key of the local SSH server
+local_hostkey
+local_hostkey.pub
+
+# generated password the client authenticates with
+local_password.enc
+local_password.txt
+
+# machine-specific authorized client key
+authorized_key.pub
+
+# machine-local settings: account name, expected address
+bridge.conf
+
+# generic credential shapes, in case a file is named differently
+*.pem
+*.key
+*.ppk
+id_rsa*
+id_ecdsa*
+id_ed25519*
+known_hosts
+.env
+.netrc
+
+# ---------------------------------------------------------------------------
+# Runtime data from the file-based bridge (nano4_bridge.py).
+# Holds real command output: cluster paths, directory listings, job logs.
+# ---------------------------------------------------------------------------
+in/
+out/
+hpc/
+logs/
+*.stdout.txt
+*.log
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.uv/
+.pytest_cache/
+
+# ---------------------------------------------------------------------------
+# Editor / OS
+# ---------------------------------------------------------------------------
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
