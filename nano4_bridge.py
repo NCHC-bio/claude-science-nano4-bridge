@@ -72,6 +72,9 @@ def connect(port, label):
     print(f"[bridge] connecting to {label} {USER}@{HOST}:{port}")
     transport = paramiko.Transport((HOST, port))
     transport.start_client(timeout=30)
+    # No local limit: the prompts run inside this wait, and paramiko's 30 s
+    # default expires while the operator is still reading the phone app.
+    transport.auth_timeout = None
     try:
         transport.auth_interactive(USER, _handler)
     except paramiko.ssh_exception.BadAuthenticationType as exc:

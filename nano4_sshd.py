@@ -204,33 +204,59 @@ def _replay_handler(title, instructions, prompt_list):
     return out
 
 
+LOGIN_ATTEMPTS = 3
+LOGIN_ERRORS = (paramiko.SSHException, OSError, EOFError)
+
+
+def _authenticate(port, handler):
+    """One login attempt: an authenticated transport, or an exception."""
+    t = paramiko.Transport((HOST, port))
+    try:
+        t.start_client(timeout=30)
+        # No local limit: the prompts run inside this wait, and paramiko's 30 s
+        # default expires while the operator is still reading the phone app.
+        # The server's own login grace period still ends an abandoned login.
+        t.auth_timeout = None
+        t.auth_interactive(USER, handler)
+        if not t.is_authenticated():
+            raise paramiko.AuthenticationException("login not accepted")
+    except BaseException:
+        t.close()
+        raise
+    t.set_keepalive(30)
+    return t
+
+
 def upstream_connect(port, label, replay=False):
     """Authenticate one transport; replay=True reuses recorded answers."""
-    global _REPLAY_AT
+    global _REPLAY_AT, CLUSTER_PW
     print(f"[sshd] logging in to {label} {USER}@{HOST}:{port}")
-    for handler in ([_replay_handler, _prompt_handler] if replay else [_prompt_handler]):
-        t = paramiko.Transport((HOST, port))
-        t.start_client(timeout=30)
+    if replay:
         try:
-            t.auth_interactive(USER, handler)
-        except paramiko.SSHException as exc:
-            t.close()
-            if handler is _replay_handler:
-                _REPLAY_AT = 0
-                print(f"[sshd] reused answers rejected ({exc}); please type them")
-                continue
-            raise
-        if t.is_authenticated():
-            t.set_keepalive(30)
+            t = _authenticate(port, _replay_handler)
             print(f"[sshd] {label} authenticated")
             return t
-        t.close()
-        if handler is _replay_handler:
+        except LOGIN_ERRORS as exc:
             _REPLAY_AT = 0
-            print("[sshd] reused answers rejected; please type them")
-            continue
-        raise SystemExit(f"[sshd] authentication failed on {label}")
-    raise SystemExit(f"[sshd] authentication failed on {label}")
+            print(f"[sshd] reused answers rejected ({exc}); please type them")
+    for attempt in range(1, LOGIN_ATTEMPTS + 1):
+        if not replay:
+            # A failed attempt's answers must not unlock the password file
+            # or be replayed to the transfer node.
+            RECORDED.clear()
+            CLUSTER_PW = None
+        try:
+            t = _authenticate(port, _prompt_handler)
+            print(f"[sshd] {label} authenticated")
+            return t
+        except LOGIN_ERRORS as exc:
+            print(f"\n[sshd] login to {label} did not succeed ({exc})")
+            if attempt < LOGIN_ATTEMPTS:
+                print("[sshd] check your password, wait for a NEW code in your"
+                      f" phone app, and try again (attempt {attempt + 1} of"
+                      f" {LOGIN_ATTEMPTS})")
+    raise SystemExit(f"[sshd] could not log in to {label} after"
+                     f" {LOGIN_ATTEMPTS} attempts")
 
 
 # ----------------------------------------------------------------- exec proxy
@@ -695,7 +721,7 @@ def main():
             up2 = upstream_connect(SFTP_PORT, "transfer node", replay=True)
             UPSFTP = paramiko.SFTPClient.from_transport(up2)
             print("[sshd] sftp proxy enabled")
-        except Exception as exc:
+        except (Exception, SystemExit) as exc:
             print(f"[sshd] transfer node unavailable ({exc}) -- sftp disabled")
 
     if args.heartbeat > 0:
