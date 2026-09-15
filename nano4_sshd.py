@@ -153,7 +153,7 @@ def setting(name, default=""):
     return os.environ.get(name) or CONF.get(name, default)
 
 
-HOST = setting("BRIDGE_HOST")
+HOST = setting("BRIDGE_HOST", "nano4.nchc.org.tw")
 SSH_PORT = int(setting("BRIDGE_PORT", "22"))
 SFTP_PORT = int(setting("BRIDGE_SFTP_PORT", "2222"))
 USER = setting("BRIDGE_USER")
@@ -540,33 +540,94 @@ def heartbeat(interval):
                   "you will need fresh OTPs")
 
 
-def local_addresses():
-    """Every IPv4 this machine answers on -- candidates for the Host field."""
-    found = set()
-    try:
-        found.update(socket.gethostbyname_ex(socket.gethostname())[2])
-    except Exception:
-        pass
+VIRTUAL_HINTS = ("vethernet", "vmware", "virtualbox", "hyper-v", "loopback",
+                 "wsl", "tap-", "default switch", "vmnet")
+
+
+def _routed_address():
+    """The address used to reach the outside world -- i.e. the one that moves
+    when the machine joins a different network. No packets are sent."""
     try:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         probe.connect(("192.0.2.1", 1))
-        found.add(probe.getsockname()[0])
+        addr = probe.getsockname()[0]
         probe.close()
+        return addr
+    except Exception:
+        return None
+
+
+def _windows_interfaces():
+    """{address: adapter description} from ipconfig. 'IPv4' is locale-invariant."""
+    found = {}
+    try:
+        out = subprocess.run(["ipconfig"], capture_output=True,
+                             timeout=10).stdout.decode("utf-8", "replace")
+    except Exception:
+        return found
+    adapter = ""
+    for line in out.splitlines():
+        if line.strip() and not line[0].isspace():
+            adapter = line.strip().rstrip(":")
+        elif "IPv4" in line:
+            m = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})", line)
+            if m:
+                found[m.group(1)] = adapter
+    return found
+
+
+def address_candidates():
+    """[(address, kind, advice)] best first.
+
+    'kind' is virtual / current-network / other. Virtual adapters keep the same
+    address on every network, so they are what a client should be pointed at.
+    """
+    routed = _routed_address()
+    seen = dict(_windows_interfaces()) if os.name == "nt" else {}
+    try:
+        for a in socket.gethostbyname_ex(socket.gethostname())[2]:
+            seen.setdefault(a, "")
     except Exception:
         pass
-    if os.name == "nt":
-        # gethostbyname_ex misses virtual adapters; "IPv4" is locale-invariant.
-        try:
-            out = subprocess.run(["ipconfig"], capture_output=True,
-                                 timeout=10).stdout.decode("utf-8", "replace")
-            for line in out.splitlines():
-                if "IPv4" in line:
-                    m = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})", line)
-                    if m:
-                        found.add(m.group(1))
-        except Exception:
-            pass
-    return sorted(a for a in found if not a.startswith("127."))
+    if routed:
+        seen.setdefault(routed, "")
+
+    out = []
+    for addr, adapter in seen.items():
+        if addr.startswith(("127.", "169.254.")):
+            continue
+        low = adapter.lower()
+        if any(h in low for h in VIRTUAL_HINTS):
+            out.append((addr, "virtual", "same address on every network"))
+        elif addr == routed:
+            out.append((addr, "current-network",
+                        "CHANGES when this machine joins another network"))
+        else:
+            out.append((addr, "other", "may change"))
+    rank = {"virtual": 0, "other": 1, "current-network": 2}
+    out.sort(key=lambda row: (rank[row[1]], row[0]))
+    return out
+
+
+def print_address_advice(expected):
+    """Tell the operator exactly which address to give the client."""
+    cands = address_candidates()
+    if not cands:
+        print("  no usable network address found on this machine")
+        return
+    best = cands[0][0]
+    if expected and expected in [c[0] for c in cands]:
+        print(f"  address for your client: {expected}  (already set, still valid)")
+        return
+    print("  address to give your SSH client / compute target:")
+    print(f"     {best}   <-- USE THIS")
+    for addr, _kind, advice in cands[1:]:
+        print(f"     {addr}       {advice}")
+    if expected:
+        print(f"  NOTE: BRIDGE_EXPECT={expected} is not on this machine any more;"
+              f" use {best} instead")
+    else:
+        print(f"  save it so this check runs next time:  BRIDGE_EXPECT={best}")
 
 
 def load_hostkey():
@@ -595,9 +656,23 @@ def main():
                     help="address the client dials; warn if absent ('' to skip)")
     ap.add_argument("--heartbeat", type=int, default=240,
                     help="seconds between upstream keep-warm pokes (0 disables)")
+    ap.add_argument("--show-address", action="store_true",
+                    help="print the recommended address and exit (no login)")
     ap.add_argument("--no-transfer", action="store_true",
                     help="skip the port-2222 login (no sftp, exec only)")
     args = ap.parse_args()
+
+    if args.show_address:
+        cands = address_candidates()
+        if not cands:
+            sys.exit("no usable network address found on this machine")
+        print(cands[0][0])
+        return
+
+    if not USER:
+        sys.exit("set BRIDGE_USER (your iService account) in bridge.conf"
+                 " or the environment")
+
 
     keypath = pathlib.Path(args.authorized_key)
     if keypath.exists():
@@ -623,9 +698,6 @@ def main():
         except Exception as exc:
             print(f"[sshd] transfer node unavailable ({exc}) -- sftp disabled")
 
-    if not HOST or not USER:
-        sys.exit("set BRIDGE_HOST and BRIDGE_USER in bridge.conf or the environment")
-
     if args.heartbeat > 0:
         threading.Thread(target=heartbeat, args=(args.heartbeat,),
                          daemon=True).start()
@@ -643,16 +715,7 @@ def main():
     print(f"     Password  {LOCAL_PASSWORD}   [{pw_source}]")
     print(f"     sftp      {'enabled (via transfer node)' if UPSFTP else 'DISABLED'}")
     print("-" * 68)
-    print("  local addresses:")
-    addrs = local_addresses()
-    for a in addrs:
-        print(f"     {a}")
-    if args.expect:
-        if args.expect in addrs:
-            print(f"  client target address {args.expect}: present")
-        else:
-            print(f"  WARNING: {args.expect} is NOT on this machine right now.")
-            print("  update the client target HostName to one of the addresses above.")
+    print_address_advice(args.expect)
     print("=" * 68)
     print("  test it:  ssh -p %d %s@%s hostname" % (args.port, USER, args.bind))
     hb = f"every {args.heartbeat}s" if args.heartbeat > 0 else "disabled"

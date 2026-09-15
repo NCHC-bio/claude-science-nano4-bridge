@@ -33,7 +33,7 @@ try:
 except ImportError:
     sys.exit("paramiko is not installed ->  run this with:  uv run nano4_bridge.py")
 
-HOST = os.environ.get("BRIDGE_HOST", "")
+HOST = os.environ.get("BRIDGE_HOST", "nano4.nchc.org.tw")
 PORT = int(os.environ.get("BRIDGE_PORT", "22"))              # shell / exec
 SFTP_PORT = int(os.environ.get("BRIDGE_SFTP_PORT", "2222"))  # sftp only
 USER = os.environ.get("BRIDGE_USER", "")
@@ -275,8 +275,8 @@ def reply(req_id, body):
 # --------------------------------------------------------------- main
 
 def main():
-    if not HOST or not USER:
-        sys.exit("set BRIDGE_HOST and BRIDGE_USER in the environment")
+    if not USER:
+        sys.exit("set BRIDGE_USER (your iService account) in the environment")
     IN_DIR.mkdir(parents=True, exist_ok=True)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     transport = connect(PORT, "login node")

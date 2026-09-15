@@ -1,8 +1,4 @@
 @echo off
-REM Double-click to bring the nano4 bridge up.
-REM Answer the 2FA prompts once; leave this window open while you work.
+REM Double-click this. First run sets everything up; after that it just logs in.
 cd /d "%~dp0"
-uv run nano4_sshd.py %*
-echo.
-echo [bridge stopped] press any key to close
-pause >nul
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0bridge.ps1" %*

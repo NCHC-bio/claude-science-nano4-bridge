@@ -1,0 +1,20 @@
+# Copy to bridge.conf and edit. bridge.conf is gitignored; this file is not,
+# so keep real account names and addresses out of it.
+# Environment variables of the same names take precedence over these values.
+
+# Required: your iService account (the login name on the cluster).
+BRIDGE_USER=your_account
+
+# The cluster's login host. Defaults to nano4 if unset; change it to point the
+# bridge at another site with the same interactive-2FA login pattern.
+BRIDGE_HOST=nano4.nchc.org.tw
+
+# Upstream ports. Defaults shown. If your site serves sftp on the shell port,
+# set them equal and run with --no-transfer.
+BRIDGE_PORT=22
+BRIDGE_SFTP_PORT=2222
+
+# The address your SSH client will dial to reach this bridge, checked at every
+# startup. Leave blank until you have picked one (README step 3); the bridge
+# lists the machine's own addresses when it starts.
+BRIDGE_EXPECT=
