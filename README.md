@@ -1,4 +1,4 @@
-# nano4-bridge
+# claude-science-nano4-bridge
 
 English | [繁體中文](README.zh-TW.md)
 
