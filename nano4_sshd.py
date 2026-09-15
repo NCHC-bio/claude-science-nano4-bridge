@@ -38,7 +38,7 @@ import traceback
 
 import paramiko
 from paramiko import (SFTPAttributes, SFTPHandle, SFTPServer,
-                      SFTPServerInterface, SFTP_OK)
+                      SFTPServerInterface, SFTP_CONNECTION_LOST, SFTP_OK)
 
 ROOT = pathlib.Path(__file__).resolve().parent
 HOSTKEY_PATH = ROOT / "local_hostkey"
@@ -258,6 +258,42 @@ def _pump(local, up):
         return 255
 
 
+# Written to the client's stderr, so the assistant can tell the user what to do.
+LOST_FOR_CLIENT = (
+    "nano4-bridge: the connection to nano4 was lost. Ask the user to press R"
+    " in the nano4 bridge window and log in again with a new code from their"
+    " phone app, then retry.")
+RELOGGING_FOR_CLIENT = (
+    "nano4-bridge: the user is logging in to nano4 again in the bridge window."
+    " Wait a minute, then retry.")
+
+
+def upstream_problem():
+    """Why the login node cannot take requests right now, or None."""
+    if UP is not None and UP.is_active():
+        return None
+    return RELOGGING_FOR_CLIENT if RELOGGING.is_set() else LOST_FOR_CLIENT
+
+
+def _open_upstream(chan):
+    """A session on the login node, or None after telling the client why not."""
+    problem = upstream_problem()
+    if problem is None:
+        try:
+            return UP.open_session(timeout=30)
+        except Exception as exc:
+            print(f"[sshd] could not open a session on the login node: {exc}")
+            problem = upstream_problem() or LOST_FOR_CLIENT
+    if not RELOGGING.is_set():
+        print(f"[sshd] told the client nano4 is disconnected -- {RELOGIN_KEYS}"
+              " to log in again")
+    try:
+        chan.sendall_stderr((problem + "\n").encode())
+    except Exception:
+        pass
+    return None
+
+
 def proxy_exec(chan, command):
     if isinstance(command, bytes):
         command = command.decode("utf-8", "replace")
@@ -265,10 +301,11 @@ def proxy_exec(chan, command):
     print(f"[sshd] exec: {head}{'...' if len(command) > 160 else ''}")
     rc = 255
     try:
-        up = UP.open_session(timeout=30)
-        up.exec_command(command)
-        rc = _pump(chan, up)
-        up.close()
+        up = _open_upstream(chan)
+        if up is not None:
+            up.exec_command(command)
+            rc = _pump(chan, up)
+            up.close()
     except Exception as exc:
         traceback.print_exc()
         try:
@@ -289,11 +326,12 @@ def proxy_exec(chan, command):
 def proxy_shell(chan):
     print("[sshd] shell session")
     try:
-        up = UP.open_session(timeout=30)
-        up.get_pty()
-        up.invoke_shell()
-        _pump(chan, up)
-        up.close()
+        up = _open_upstream(chan)
+        if up is not None:
+            up.get_pty()
+            up.invoke_shell()
+            _pump(chan, up)
+            up.close()
     except Exception:
         traceback.print_exc()
     finally:
@@ -306,6 +344,9 @@ def proxy_shell(chan):
 # ----------------------------------------------------------------- sftp proxy
 
 def _sftp_err(exc):
+    # sftp statuses carry no text of our own; "Connection lost" is the nearest.
+    if UPSFTP is None or not UPSFTP.get_channel().get_transport().is_active():
+        return SFTP_CONNECTION_LOST
     return SFTPServer.convert_errno(getattr(exc, "errno", None) or errno.EIO)
 
 
