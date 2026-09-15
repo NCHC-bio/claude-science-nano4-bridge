@@ -1,178 +1,180 @@
-# claude-science-nano4-bridge
+<div align="center">
+
+# 🌉 claude-science-nano4-bridge
 
 English | [繁體中文](README.zh-TW.md)
 
-Every time you connect to nano4 it asks you three things: which login method,
-your iService password, and a one-time code from your phone. Programs can't
-answer those questions, so programs can't use nano4 by themselves.
+**Log in to nano4 once, by hand — then let Claude Science use the cluster.**
 
-This tool lets **you** log in once, by hand. After that your programs — Claude
-for Science, for example — can work with nano4 through your login, for as long
-as you leave it running.
+nano4 asks for a login method, your iService password and a one-time code on every connection. This keeps one logged-in session open on your Windows computer, so Claude Science can run commands and move files on nano4 for as long as you leave it running.
 
-You don't need to know anything about networks or programming to set this up.
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-0078D6)
+![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
+![Runs with](https://img.shields.io/badge/runs%20with-uv-DE5FE9)
+![Cluster](https://img.shields.io/badge/cluster-NCHC%20nano4-00A98F)
+![Login](https://img.shields.io/badge/login-2FA%20%28OTP%29-6E40C9)
+![Client](https://img.shields.io/badge/client-Claude%20Science-D97757)
 
-## What you need
-
-- A Windows computer
-- Your iService account name
-- The authenticator app on your phone, the one that shows the one-time code
+</div>
 
 ---
 
-# Setting it up
+## ✅ What you need
 
-## 1. Double-click `start-bridge.cmd`
+- A Windows computer
+- Your iService account
+- The authenticator app on your phone, the one that shows the one-time code
 
-That is the whole setup. The first time you run it, it prepares everything by
-itself, which takes a couple of minutes:
+No networking or programming knowledge needed.
 
-- it asks for your **iService account name** — type it and press Enter
+---
+
+## 🚀 Setting it up
+
+### 1. Install Claude Science
+
+1. Open <https://claude.com/product/claude-science>
+2. Click **Windows**, run the downloaded installer and follow the steps on screen.
+3. Open **Claude Science** and sign in.
+
+### 2. Double-click `start-bridge.cmd`
+
+The first run prepares everything by itself, in a couple of minutes:
+
+- it asks for your **iService account** — type it and press Enter
 - Windows asks for permission to change firewall settings — click **Yes**
 - then it asks you to log in
 
-If Windows warns you about running the file, choose **More info → Run anyway**.
+> [!TIP]
+> If Windows warns you about running the file, choose **More info → Run anyway**.
 
-## 2. Log in
+### 3. Log in
 
-Three questions, the same ones nano4 always asks:
+The same three questions nano4 always asks:
 
 ```
-Login method:   type 1  and press Enter
+Login method:   type 1 and press Enter
 Password:       your iService password
 OTP:            the six digits from your phone app
 ```
 
-While you type your password **nothing appears on screen** — no dots, no stars.
-That is normal.
+> [!NOTE]
+> While you type your password **nothing appears on screen** — no dots, no stars. That is normal.
 
-## 3. Add it to Claude for Science
+When the window shows **READY**, you're logged in.
 
-Only needed once. In the left sidebar open **Customize → Compute**, then
-**Add SSH host**:
+### 4. Add nano4 to Claude Science
 
-1. Under **From ~/.ssh/config**, choose **`nano4-bridge`** — the bridge already
-   created this entry for you, so there is nothing to type.
-2. Under **Authentication**, click **Password**. This matters: **Public key** is
-   selected by default and will not work.
+Only needed once. In the left sidebar open **Customize → Compute**, then **Add SSH host**:
+
+1. Under **From ~/.ssh/config**, choose **`nano4-bridge`**. There is nothing to type.
+2. Under **Authentication**, click **Password**.
 3. Save.
 
-Then ask Claude to run something on nano4. A password box appears — type your
-**iService password** into that box, not into the chat.
+> [!IMPORTANT]
+> Choose **Password**, not the default **Public key** — Public key will not connect.
 
-The optional notes box is a good place for anything Claude should know about the
-cluster, for example: *Slurm cluster, submit jobs with sbatch.*
+Then ask Claude to run something on nano4. When a password box appears, type your **iService password** into that box, not into the chat.
 
-**Leave the bridge window open.** Closing it ends the connection.
+The optional notes box is a good place for anything Claude should know about the cluster, for example: *Slurm cluster, submit jobs with sbatch.*
 
----
-
-# Every day after this
-
-Double-click `start-bridge.cmd`, answer the three questions, leave the window
-open while you work.
-
-Nothing else needs setting up again. If you change your iService password,
-update it in Claude for Science too.
+> [!IMPORTANT]
+> **Leave the bridge window open.** Closing it ends the connection.
 
 ---
 
-# If something isn't working
+## 📅 Every day after this
+
+Double-click `start-bridge.cmd`, answer the three questions, and leave the window open while you work.
+
+If you change your iService password, update it in Claude Science too.
+
+---
+
+## 🩺 If something isn't working
 
 | What you see | What to do |
-|---|---|
+| --- | --- |
 | Claude can't connect to nano4 | Check the `start-bridge.cmd` window is still open. That window is the connection. |
 | The bridge window is gone | Double-click `start-bridge.cmd` again and log in. |
 | `UPSTREAM LOST` in the window | nano4 dropped the connection. Close the window and start it again. |
-| It said the firewall was **NOT allowed** | Close the window, double-click `start-bridge.cmd` again, and click **Yes** on the Windows prompt. |
-| It says the address changed | Nothing to do — the bridge updates the entry itself. If Claude still cannot connect, add the host again in Customize → Compute. |
-| Anything else | Copy what the window shows and send it to whoever maintains this. |
-
+| It said the firewall was **Not allowed** | Close the window, double-click `start-bridge.cmd` again, and click **Yes** on the Windows prompt. |
+| It says the address changed | Nothing to do — the bridge updates the entry itself. If Claude still cannot connect, add the host again in **Customize → Compute**. |
 | Claude can run commands but cannot send or fetch files | Wait a minute — the first connection is still finishing. If it persists, click **Retry probe** on the host in **Customize → Compute**. |
 | Claude asks for a password and rejects it | Use your iService password, the one you type into the bridge window. |
 | Claude says `Permission denied (publickey)` | The host was added with **Public key**. Add it again and choose **Password**. |
+| Anything else | Copy what the window shows and send it to whoever maintains this. |
 
 ---
 
 <details>
-<summary><b>Technical notes</b> (for whoever maintains this)</summary>
+<summary><b>🔧 Technical notes</b> (for whoever maintains this)</summary>
 
-## What it does
+<br>
 
-nano4 accepts only keyboard-interactive 2FA, and splits services across two
-ports: `22` for shell/exec with no sftp subsystem, `2222` for sftp with no
-shell. No automation can satisfy a three-prompt login with a per-session OTP,
-and the server does not offer publickey auth, so there is no non-interactive
-path.
+## 🗺️ How it works
 
-`nano4_sshd.py` authenticates both upstream endpoints once, interactively, then
-serves a single-prompt SSH endpoint locally and routes by channel type:
+nano4 accepts only keyboard-interactive 2FA, and splits services across two ports: `22` for shell/exec with no sftp subsystem, `2222` for sftp with no shell. No automation can satisfy a three-prompt login with a per-session OTP, and the server does not offer publickey auth, so there is no non-interactive path.
+
+`nano4_sshd.py` authenticates both upstream endpoints once, interactively, then serves a single-prompt SSH endpoint locally and routes by channel type:
 
 ```
- client ──ssh──▶ this machine:2200
-                      ├── exec ──▶ nano4:22     (2FA session, held open)
-                      └── sftp ──▶ nano4:2222   (transfer node)
+┌─────────────────────┐ ssh · port 2200     ┌─────────────────────────────────────┐
+│ Claude Science      │ ────────────────►   │ nano4_sshd.py · this computer       │
+│ (or any SSH client) │ iService password   │                                     │
+└─────────────────────┘                     │ exec ──► nano4:22    login node     │
+                                            │ sftp ──► nano4:2222  transfer node  │
+                                            │                                     │
+                                            │ you log in once, by hand:           │
+                                            │ method ─► password ─► OTP           │
+                                            └─────────────────────────────────────┘
 ```
 
-Effectively `ControlMaster`/`ControlPersist` for a client that can't multiplex —
-Windows OpenSSH among them. The transfer-node login replays the first login's
-answers, so one OTP covers both.
+Effectively `ControlMaster`/`ControlPersist` for a client that can't multiplex — Windows OpenSSH among them. The transfer-node login replays the first login's answers, so one OTP covers both.
 
-## Configuration
+## ⚙️ Configuration
 
-`bridge.conf` (gitignored, written on first run); environment variables of the
-same names take precedence:
+`bridge.conf` (gitignored, written on first run); environment variables of the same names take precedence:
 
 | Key | Default | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `BRIDGE_USER` | — | iService account, required |
 | `BRIDGE_HOST` | `nano4.nchc.org.tw` | upstream host |
 | `BRIDGE_PORT` | `22` | upstream shell port |
 | `BRIDGE_SFTP_PORT` | `2222` | upstream sftp port |
 | `BRIDGE_EXPECT` | — | address clients dial; verified at startup |
 
-## Flags
+## 🚩 Flags
 
 | Flag | Default | Effect |
-|---|---|---|
+| --- | --- | --- |
 | `--port` | `2200` | local listen port |
 | `--bind` | `0.0.0.0` | local bind address |
 | `--show-address` | — | print the recommended address and exit |
+| `--host-key` | — | print the public host key (creating it) and exit |
 | `--expect` | from config | warn if that address is absent |
 | `--heartbeat` | `240` | keep-warm interval, seconds; `0` disables |
 | `--no-transfer` | off | skip the sftp login |
-| `--host-key` | — | print the public host key (creating it) and exit |
 | `--password` | `BRIDGE_PASSWORD` | fixed client password instead of the iService password |
 | `--authorized-key` | `authorized_key.pub` | accept a public key instead |
 
-## Address selection
+## 🔐 Client password
 
-`--bind 0.0.0.0` is required: the client may run in a container or VM, where
-`127.0.0.1` is its own loopback. `address_candidates()` enumerates interfaces
-(`ipconfig` on Windows, matching the locale-invariant `IPv4` label, plus
-`gethostbyname_ex` and a UDP route probe) and ranks virtual-adapter addresses
-above the routed one, since the routed address moves with the network.
-`host.docker.internal` was tested against the Claude for Science client and does
-not resolve to anything reachable.
+Clients authenticate with the iService password itself, so users handle one password. It is captured from the first non-echo login prompt, held in memory for the life of the process, and never written to disk; the bridge only accepts clients after that interactive 2FA login, so the password alone is not enough to reach the cluster through it. Claude Science stores the credential encrypted on its side.
 
-## Client password
+Because a person-chosen password is weaker than the random token earlier versions generated, password checks are serialized and each failure sleeps 2 s, capping guesses from the network at about 1800 an hour. Comparison is constant-time on UTF-8 bytes.
 
-Clients authenticate with the iService password itself, so users handle one
-password. It is captured from the first non-echo login prompt, held in memory
-for the life of the process, and never written to disk; the bridge only accepts
-clients after that interactive 2FA login, so the password alone is not enough
-to reach the cluster through it. Claude for Science stores the credential
-encrypted on its side.
+Earlier versions kept a separate random bridge password in `local_password.enc` (or plaintext `local_password.txt`); both are deleted at startup.
 
-Because a person-chosen password is weaker than the random token earlier
-versions generated, password checks are serialized and each failure sleeps
-2 s, capping guesses from the network at about 1800 an hour. Comparison is
-constant-time on UTF-8 bytes.
+## 🧭 Address selection
 
-Earlier versions kept a separate random bridge password in `local_password.enc`
-(or plaintext `local_password.txt`); both are deleted at startup.
+`--bind 0.0.0.0` is required: the client may run in a container or VM, where `127.0.0.1` is its own loopback. `address_candidates()` enumerates interfaces (`ipconfig` on Windows, matching the locale-invariant `IPv4` label, plus `gethostbyname_ex` and a UDP route probe) and ranks virtual-adapter addresses above the routed one, since the routed address moves with the network. `host.docker.internal` was tested against the Claude Science client and does not resolve to anything reachable.
 
-## Manual setup
+## 🔑 Host key
+
+The bridge's SSH host key lives in `local_hostkey` and survives restarts. On every start `bridge.ps1` compares it with the `known_hosts` entry for the bridge address, removes a stale entry and adds the current key, so a regenerated key (a new copy of the folder, a deleted key file) never surfaces as `REMOTE HOST IDENTIFICATION HAS CHANGED`.
+
+## 🛠️ Manual setup
 
 What `bridge.ps1` does on first run, if you'd rather do it by hand:
 
@@ -194,30 +196,33 @@ Host nano4-bridge
     StrictHostKeyChecking accept-new
 ```
 
-The last three lines matter: the bridge offers password auth only, and it
-presents a self-generated host key that would otherwise stop a probe with an
-interactive confirmation.
+The last three lines matter: the bridge offers password auth only, and it presents a self-generated host key that would otherwise stop a probe with an interactive confirmation.
 
-## Diagnosing a failed connection
+## 🩻 Diagnosing a failed connection
 
 | Client error | Cause |
-|---|---|
+| --- | --- |
 | `Connection refused` / `Connection to UNKNOWN port -1` | wrong address (often the client's own loopback) or missing `Port 2200` |
 | probe timeout | firewall, or an address that doesn't route to this machine |
 | `Permission denied (password)` | connection fine, credential missing |
 | `Permission denied (keyboard-interactive)` | client is dialling nano4 directly, not the bridge |
 | `sftp unavailable (EOF during negotiation)` | expected on port 22; sftp comes from 2222 |
 | `no scratch_root configured yet` | probe hasn't finished populating it; it cleared on its own within a couple of minutes on 2026-09-15, otherwise **Retry probe** in Customize → Compute |
-| host key mismatch | `local_hostkey` was regenerated (new folder copy, file deleted); `start-bridge.cmd` re-pins it on its next start, or by hand: `ssh-keygen -R "[<addr>]:2200"` |
+| host key mismatch | `local_hostkey` was regenerated; `start-bridge.cmd` re-pins it on its next start, or by hand: `ssh-keygen -R "[<addr>]:2200"` |
 
-## Files
+## 📂 Repository layout
 
-| Path | Purpose |
-|---|---|
-| `nano4_sshd.py` | the bridge |
-| `start-bridge.cmd` | the only thing a user runs |
-| `bridge.ps1` | first-run setup (uv, bridge.conf, firewall, ssh entry) then starts the bridge |
-| `nano4_bridge.py` | alternative file-watching bridge (`in/` → `out/` JSON), for when no SSH client can be pointed at the endpoint |
-| `bridge.conf.example` | template; `bridge.conf` is gitignored |
+```
+.
+├── start-bridge.cmd       # the only thing a user runs
+├── bridge.ps1             # setup: uv, bridge.conf, firewall, ssh entry, host key pin; then starts the bridge
+├── nano4_sshd.py          # the bridge: local SSH server → nano4 login node + transfer node
+├── nano4_bridge.py        # alternative file-watching bridge (in/ → out/ JSON), when no SSH client can be pointed at it
+├── bridge.conf.example    # settings template
+├── README.md
+└── README.zh-TW.md
+```
+
+`bridge.conf` and `local_hostkey` are created on this computer at first run and are gitignored; keep them that way.
 
 </details>
